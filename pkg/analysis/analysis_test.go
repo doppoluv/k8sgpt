@@ -385,7 +385,7 @@ func TestGetAIResultForSanitizedFailures(t *testing.T) {
 				Cache:    enabledCache,
 			},
 			texts:          []string{"some-data"},
-			expectedOutput: "I am a noop response to the prompt %!(EXTRA string=, string=some-data)",
+			expectedOutput: "I am a noop response to the prompt {\n\t\t\t\t\"model\": \"\"\n\t\t\t\t\"language\": \"\",\n\t\t\t\t\"prompt\": \"\",\n\t\t\t\t\"message\": \"some-data\"\n\t\t\t\t}",
 		},
 		{
 			name: "cache disabled",
@@ -396,7 +396,7 @@ func TestGetAIResultForSanitizedFailures(t *testing.T) {
 			},
 			texts:          []string{"test input"},
 			promptTmpl:     "Response in %s: %s",
-			expectedOutput: "I am a noop response to the prompt Response in English: test input",
+			expectedOutput: "I am a noop response to the prompt {\n\t\t\t\t\"model\": \"\"\n\t\t\t\t\"language\": \"English\",\n\t\t\t\t\"prompt\": \"Response in %s: %s\",\n\t\t\t\t\"message\": \"test input\"\n\t\t\t\t}",
 		},
 	}
 

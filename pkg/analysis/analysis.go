@@ -16,7 +16,6 @@ package analysis
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -27,6 +26,7 @@ import (
 	"github.com/fatih/color"
 	openapi_v2 "github.com/google/gnostic/openapiv2"
 	"github.com/k8sgpt-ai/k8sgpt/pkg/ai"
+	"github.com/k8sgpt-ai/k8sgpt/pkg/ai/prompts"
 	"github.com/k8sgpt-ai/k8sgpt/pkg/analyzer"
 	"github.com/k8sgpt-ai/k8sgpt/pkg/cache"
 	"github.com/k8sgpt-ai/k8sgpt/pkg/common"
@@ -55,6 +55,7 @@ type Analysis struct {
 	WithDoc            bool
 	WithStats          bool
 	Stats              []common.AnalysisStats
+	Model              string
 }
 
 type (
@@ -201,6 +202,7 @@ func NewAnalysis(
 		fmt.Printf("Debug: AI configuration loaded, provider=%s, ", backend)
 		fmt.Printf("baseUrl=%s, model=%s.\n", aiProvider.BaseURL, aiProvider.Model)
 	}
+	a.Model = aiProvider.Model
 
 	aiClient := ai.NewClient(aiProvider.Name)
 	customHeaders := util.NewHeaders(httpHeaders)
@@ -475,16 +477,19 @@ func (a *Analysis) GetAIResults(output string, anonymize bool) error {
 			texts = append(texts, failure.Text)
 		}
 
-		promptTemplate := ai.PromptMap["default"]
-		// If the resource `Kind` comes from an "integration plugin",
-		// maybe a customized prompt template will be involved.
-		if prompt, ok := ai.PromptMap[analysis.Kind]; ok {
-			promptTemplate = prompt
+		// Устанавливаем язык для промтов
+		if err := prompts.SetLanguage(a.Language); err != nil {
+			return fmt.Errorf("failed to set language for prompts: %v", err)
 		}
+
+		prompt := analysis.Kind
+		if _, ok := prompts.PromptMap[prompt]; !ok {
+			prompt = "default_prompt"
+		}
+		promptTemplate := prompts.GetPrompt(prompt)
+
 		result, err := a.getAIResultForSanitizedFailures(texts, promptTemplate)
 		if err != nil {
-			// FIXME: can we avoid checking if output is json multiple times?
-			//   maybe implement the progress bar better?
 			if output != "json" {
 				_ = bar.Exit()
 			}
@@ -535,25 +540,9 @@ func (a *Analysis) getAIResultForSanitizedFailures(texts []string, promptTmpl st
 	}
 
 	// Process template.
-	prompt := fmt.Sprintf(strings.TrimSpace(promptTmpl), a.Language, inputKey)
-	if a.AIClient.GetName() == ai.CustomRestClientName {
-		// Use proper JSON marshaling to handle special characters in error messages
-		// This fixes issues with quotes, newlines, and other special chars in inputKey
-		customRestPrompt := struct {
-			Language string `json:"language"`
-			Message  string `json:"message"`
-			Prompt   string `json:"prompt"`
-		}{
-			Language: a.Language,
-			Message:  inputKey,
-			Prompt:   prompt,
-		}
-		promptBytes, err := json.Marshal(customRestPrompt)
-		if err != nil {
-			return "", fmt.Errorf("failed to marshal customrest prompt: %w", err)
-		}
-		prompt = string(promptBytes)
-	}
+	prompt := strings.TrimSpace(promptTmpl)
+	prompt = fmt.Sprintf(prompts.GetPrompt("raw_prompt"), a.Model, a.Language, prompt, inputKey)
+
 	response, err := a.AIClient.GetCompletion(a.Context, prompt)
 	if err != nil {
 		return "", err
